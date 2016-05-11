@@ -38,11 +38,13 @@ const int MinArea = 500;
 
 struct OSC_VIS_REGIONS ImgRegions;/* these contain the foreground objects */
 
-void ChangeDetection();
+void ChangeDetection(void);
 void Erode_3x3(int InIndex, int OutIndex);
 void Dilate_3x3(int InIndex, int OutIndex);
-void DetectRegions();
-void DrawBoundingBoxes();
+void DetectRegions(void);
+void DrawBoundingBoxes(void);
+
+void binningAngle(void);
 
 void ResetProcess() {
 
@@ -62,6 +64,7 @@ void ProcessFrame() {
 		DetectRegions();
 
 		DrawBoundingBoxes();
+		binningAngle();
 	}
 }
 
@@ -78,8 +81,9 @@ void ChangeDetection() {
 			int32 dx = -(int32) *(p - nc - 1) + (int32) *(p - nc + 1)
 					- 2 * (int32) *(p - 1) + 2 * (int32) *(p + 1)
 					- (int32) *(p + nc - 1) + (int32) *(p + nc + 1);
-			int32 dy = -(int32) *(p - nc - 1) - 2*(int32) *(p - nc - 1)+ (int32) *(p - nc + 1)
-					+ (int32) *(p + nc - 1) + 2*(int32) *(p + nc - 1)+ (int32) *(p + nc + 1);
+			int32 dy = -(int32) *(p - nc - 1) - 2 * (int32) *(p - nc)
+					- (int32) *(p - nc + 1) + (int32) *(p + nc - 1)
+					+ 2 * (int32) *(p + nc) + (int32) *(p + nc + 1);
 
 			/* check if norm is larger than threshold */
 			int32 df2 = dx * dx + dy * dy;
@@ -96,6 +100,7 @@ void ChangeDetection() {
 			data.u8TempImage[BACKGROUND][r + c] = (uint8) MAX(0,
 					MIN(255, 128+dx));
 		}
+
 	}
 }
 
@@ -155,4 +160,63 @@ void DrawBoundingBoxes() {
 					ImgRegions.objects[o].bboxBottom, false, GREEN);
 		}
 	}
+}
+
+void binningAngle() {
+	int o, c;
+	double intervall[] = { 0, 0.3927, 1.1780, 1.9634, 2.7488 };
+	int bin[] = { 0, 0, 0, 0 };
+	char binDesc[4][5] = { "0", "45", "90", "135" };
+
+	//loop over objects
+	for (o = 0; o < ImgRegions.noOfObjects; o++) {
+		//get pointer to root run of current object
+		struct OSC_VIS_REGIONS_RUN* currentRun = ImgRegions.objects[o].root;
+		//loop over runs of current object
+		do {
+			//loop over pixel of current run
+			for (c = currentRun->startColumn; c <= currentRun->endColumn; c++) {
+				int r = currentRun->row;
+				//processing for individual pixel at row r and column c
+				double angle = atan2(imgDy[r * nc + c], imgDx[r * nc + c]);
+
+
+				if (angle != 0) {
+					if (angle < intervall[1]) {
+						bin[0]++;
+					} else if (angle < intervall[2]) {
+						bin[1]++;
+					} else if (angle < intervall[3]) {
+						bin[2]++;
+					} else if (angle < intervall[4]) {
+						bin[3]++;
+					} else {
+						bin[0]++;
+					}
+				}
+
+			}
+			currentRun = currentRun->next; //get net run of current object
+		} while (currentRun != NULL); //end of current object
+		int yPos = (ImgRegions.objects[o].bboxBottom
+				- ImgRegions.objects[o].bboxTop) / 2
+				+ ImgRegions.objects[o].bboxTop;
+		int xPos = (ImgRegions.objects[o].bboxRight
+				- ImgRegions.objects[o].bboxLeft) / 2
+				+ ImgRegions.objects[0].bboxLeft;
+
+		int max = 0;
+		int maxIndex = 0;
+		for (int i = 0; i < sizeof(bin); i++) {
+			if (bin[i] >= max) {
+				max = bin[i];
+				maxIndex = i;
+			}
+		}
+		int length = strlen(binDesc[maxIndex]);
+
+		DrawString(xPos, yPos, length, LARGE, GREEN, &binDesc[maxIndex][0]);
+
+	}
+
 }
